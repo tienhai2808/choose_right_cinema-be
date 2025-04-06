@@ -77,8 +77,7 @@ module.exports.chooseRightCinema = async (req, res) => {
       args: ["--start-maximized"],
     });
     const page = await browser.newPage();
-    const cinemasWithShowtime = [];
-
+    const cinemasWithShowtime = []; 
     for (const cinema of cinemasWithDistance) {
       const url = `https://moveek.com/rap/${cinema.slug}/`;
       try {
@@ -87,15 +86,17 @@ module.exports.chooseRightCinema = async (req, res) => {
         const dateSelector = `a[data-date="${viewDate}"]`;
         const dateElement = await page.$(dateSelector);
         if (!dateElement) {
-          console.log(`Không tìm thấy lịch chiếu ngày ${viewDate} tại rạp ${cinema.name}`);
+          console.log(
+            `Không tìm thấy lịch chiếu ngày ${viewDate} tại rạp ${cinema.name}`
+          );
           continue;
         }
         await dateElement.click();
-        await new Promise(r => setTimeout(r, 1500));
- 
+        await new Promise((r) => setTimeout(r, 1500));
+
         const movieSelector = `[data-movie="${film.slug}"]`;
         const movieExists = await page.$(movieSelector);
-  
+
         if (movieExists) {
           console.log(
             `Phim ${film.title} ở rạp ${cinema.name} ngày ${viewDate} CÓ chiếu`
@@ -114,10 +115,15 @@ module.exports.chooseRightCinema = async (req, res) => {
     await browser.close();
 
     if (!cinemasWithShowtime.length) {
-      return res.status(404).json({ message: "Không tìm thấy rạp nào chiếu phim này vào ngày yêu cầu" });
+      return res.status(404).json({
+        message: "Không tìm thấy rạp nào chiếu phim này vào ngày yêu cầu",
+      });
     }
 
-    res.status(200).json({ message: "Các rạp phù hợp với bạn là:", data: cinemasWithShowtime});
+    res.status(200).json({
+      message: "Các rạp phù hợp với bạn là:",
+      data: cinemasWithShowtime,
+    });
   } catch (err) {
     console.log(`Lỗi chọn rạp: ${err.message}`);
     res.status(500).json({ message: "Internal server error" });

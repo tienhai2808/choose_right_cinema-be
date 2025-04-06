@@ -1,9 +1,12 @@
 const puppeteer = require("puppeteer");
-const Cinema = require("./models/cinema.model");
-const Film = require("./models/film.model");
 const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const redis = require("redis");
+
+const Cinema = require("./models/cinema.model");
+// const Film = require("./models/film.model");
+const scrapeUtil = require("./utils/scrape.util");
+
 dotenv.config();
 
 mongoose
@@ -25,22 +28,16 @@ const redisClient = redis.createClient();
   await redisClient.connect();
 
   await redisClient.ping();
-
+  
   console.log("Đang đồng bộ dữ liệu từ MongoDB vào Redis...");
-  const filmsInDB = await Film.find({}, "slug"); 
   const cinemasInDB = await Cinema.find({}, "slug");
   const pipeline = redisClient.multi();
-  for (const film of filmsInDB) {
-    const redisKey = `film:${film.slug}`;
-    pipeline.setEx(redisKey, 86400, "true"); 
-  }
-
   for (const cinema of cinemasInDB) {
     const redisKey = `cinema:${cinema.slug}`;
     pipeline.setEx(redisKey, 86400, "true"); 
   }
   await pipeline.exec();
-  console.log(`Đã load ${filmsInDB.length} phim từ MongoDB vào Redis`);
+  console.log(`Đã load ${cinemasInDB.length} rạp từ MongoDB vào Redis`);
 })();
 
 const scrapeData = async () => {
@@ -55,10 +52,10 @@ const scrapeData = async () => {
 
   await page.goto(url, { waitUntil: "networkidle2" });
   const cityList = [
-    "Tp. Hồ Chí Minh",
-    "Hà Nội",
-    "Đà Nẵng",
-    "Đồng Nai",
+    // "Tp. Hồ Chí Minh",
+    // "Hà Nội",
+    // "Đà Nẵng",
+    // "Đồng Nai",
     "Cần Thơ",
     "Bình Dương",
     "Bình Phước",
@@ -120,16 +117,6 @@ const scrapeData = async () => {
 
     await new Promise((r) => setTimeout(r, 1500));
 
-    const extractLatLngFromGoogleMapsUrl = (url) => {
-      const coordMatch = url.match(/@([0-9\.]+),([0-9\.]+),([0-9z]+)/);
-      return coordMatch ? {
-        coordinates: [
-          parseFloat(coordMatch[2]), 
-          parseFloat(coordMatch[1])  
-        ]
-      } : null;
-    };
-
     for (let i = 0; i < cityList.length; i++) {
       await page.click(".select2-selection.select2-selection--single");
 
@@ -188,61 +175,61 @@ const scrapeData = async () => {
           }
         }
 
-        const films = await cinemaPage.$$eval(
-          "#showtimes .card.card-sm.mb-3",
-          (elements) => {
-            const extractDurations = (str) => {
-              const match = str.match(/(\d+)h(\d+)'?/);
-              if (!match) return null;
-              const hours = parseInt(match[1], 10);
-              const minutes = parseInt(match[2], 10);
-              return hours * 60 + minutes;
-            };
+        // const films = await cinemaPage.$$eval(
+        //   "#showtimes .card.card-sm.mb-3",
+        //   (elements) => {
+        //     const extractDurations = (str) => {
+        //       const match = str.match(/(\d+)h(\d+)'?/);
+        //       if (!match) return null;
+        //       const hours = parseInt(match[1], 10);
+        //       const minutes = parseInt(match[2], 10);
+        //       return hours * 60 + minutes;
+        //     };
 
-            return elements.map(element => {
-              const a = element.querySelector('h4.card-title.mb-1.name a');
-              const description = element.querySelector('p.card-text.small.text-muted.mb-0')?.textContent.trim();
-              return {
-                title: a?.textContent.trim(),
-                slug: a?.getAttribute('href').split('/')[2],
-                image: element.querySelector('.rounded.img-fluid').src,
-                duration: extractDurations(description),
-              }
-            })
-          }
-        );
+        //     return elements.map(element => {
+        //       const a = element.querySelector('h4.card-title.mb-1.name a');
+        //       const description = element.querySelector('p.card-text.small.text-muted.mb-0')?.textContent.trim();
+        //       return {
+        //         title: a?.textContent.trim(),
+        //         slug: a?.getAttribute('href').split('/')[2],
+        //         image: element.querySelector('.rounded.img-fluid').src,
+        //         duration: extractDurations(description),
+        //       }
+        //     })
+        //   }
+        // );
 
-        for (const film of films) {
-          if (!film.title || !film.slug || !film.image || !film.duration) {
-            console.log(`Dữ liệu phim không đầy đủ, bỏ qua: ${film.title}`);
-            continue;
-          }
+        // for (const film of films) {
+        //   if (!film.title || !film.slug || !film.image || !film.duration) {
+        //     console.log(`Dữ liệu phim không đầy đủ, bỏ qua: ${film.title}`);
+        //     continue;
+        //   }
 
-          const redisKeyFilm = `film:${film.slug}`;
-          const cachedFilm = await redisClient.get(redisKeyFilm);
+        //   const redisKeyFilm = `film:${film.slug}`;
+        //   const cachedFilm = await redisClient.get(redisKeyFilm);
 
-          if (cachedFilm) {
-            console.log(`Phim đã tồn tại trong Redis, bỏ qua: ${film.title}`);
-            continue;
-          }
+        //   if (cachedFilm) {
+        //     console.log(`Phim đã tồn tại trong Redis, bỏ qua: ${film.title}`);
+        //     continue;
+        //   }
 
-          const existingFilm = await Film.findOne({ slug: film.slug });
-          if (!existingFilm) {
-            const newFilm = new Film({
-              title: film.title,
-              slug: film.slug,
-              image: film.image, 
-              duration: film.duration,
-            });
-            await newFilm.save();
-            console.log(`Đã lưu phim mới: ${film.title}`);
+        //   const existingFilm = await Film.findOne({ slug: film.slug });
+        //   if (!existingFilm) {
+        //     const newFilm = new Film({
+        //       title: film.title,
+        //       slug: film.slug,
+        //       image: film.image, 
+        //       duration: film.duration,
+        //     });
+        //     await newFilm.save();
+        //     console.log(`Đã lưu phim mới: ${film.title}`);
 
-            await redisClient.setEx(redisKeyFilm, 86400, "true");
-          } else {
-            console.log(`Phim đã tồn tại trong DB, thêm vào Redis: ${film.title}`);
-            await redisClient.setEx(redisKeyFilm, 86400, "true");
-          }
-        }
+        //     await redisClient.setEx(redisKeyFilm, 86400, "true");
+        //   } else {
+        //     console.log(`Phim đã tồn tại trong DB, thêm vào Redis: ${film.title}`);
+        //     await redisClient.setEx(redisKeyFilm, 86400, "true");
+        //   }
+        // }
 
         if (!cinemaExists) {
           const aLocation = await cinemaPage.$("a.text-muted.flex-");
@@ -262,7 +249,7 @@ const scrapeData = async () => {
           await new Promise((r) => setTimeout(r, 1000));
   
           const locationUrl = locationPage.url();
-          const location = extractLatLngFromGoogleMapsUrl(locationUrl);
+          const location = scrapeUtil.extractLatLngFromGoogleMapsUrl(locationUrl);
   
           if (location) {
             const newCinema = new Cinema({
