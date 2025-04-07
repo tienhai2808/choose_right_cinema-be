@@ -4,7 +4,6 @@ const dotenv = require("dotenv");
 const redis = require("redis");
 
 const Cinema = require("./models/cinema.model");
-// const Film = require("./models/film.model");
 const scrapeUtil = require("./utils/scrape.util");
 
 dotenv.config();
@@ -56,7 +55,7 @@ const scrapeData = async () => {
     // "Hà Nội",
     // "Đà Nẵng",
     // "Đồng Nai",
-    "Cần Thơ",
+    // "Cần Thơ",
     "Bình Dương",
     "Bình Phước",
     "Bình Thuận",
@@ -174,62 +173,6 @@ const scrapeData = async () => {
             cinemaExists = true;
           }
         }
-
-        // const films = await cinemaPage.$$eval(
-        //   "#showtimes .card.card-sm.mb-3",
-        //   (elements) => {
-        //     const extractDurations = (str) => {
-        //       const match = str.match(/(\d+)h(\d+)'?/);
-        //       if (!match) return null;
-        //       const hours = parseInt(match[1], 10);
-        //       const minutes = parseInt(match[2], 10);
-        //       return hours * 60 + minutes;
-        //     };
-
-        //     return elements.map(element => {
-        //       const a = element.querySelector('h4.card-title.mb-1.name a');
-        //       const description = element.querySelector('p.card-text.small.text-muted.mb-0')?.textContent.trim();
-        //       return {
-        //         title: a?.textContent.trim(),
-        //         slug: a?.getAttribute('href').split('/')[2],
-        //         image: element.querySelector('.rounded.img-fluid').src,
-        //         duration: extractDurations(description),
-        //       }
-        //     })
-        //   }
-        // );
-
-        // for (const film of films) {
-        //   if (!film.title || !film.slug || !film.image || !film.duration) {
-        //     console.log(`Dữ liệu phim không đầy đủ, bỏ qua: ${film.title}`);
-        //     continue;
-        //   }
-
-        //   const redisKeyFilm = `film:${film.slug}`;
-        //   const cachedFilm = await redisClient.get(redisKeyFilm);
-
-        //   if (cachedFilm) {
-        //     console.log(`Phim đã tồn tại trong Redis, bỏ qua: ${film.title}`);
-        //     continue;
-        //   }
-
-        //   const existingFilm = await Film.findOne({ slug: film.slug });
-        //   if (!existingFilm) {
-        //     const newFilm = new Film({
-        //       title: film.title,
-        //       slug: film.slug,
-        //       image: film.image, 
-        //       duration: film.duration,
-        //     });
-        //     await newFilm.save();
-        //     console.log(`Đã lưu phim mới: ${film.title}`);
-
-        //     await redisClient.setEx(redisKeyFilm, 86400, "true");
-        //   } else {
-        //     console.log(`Phim đã tồn tại trong DB, thêm vào Redis: ${film.title}`);
-        //     await redisClient.setEx(redisKeyFilm, 86400, "true");
-        //   }
-        // }
 
         if (!cinemaExists) {
           const aLocation = await cinemaPage.$("a.text-muted.flex-");

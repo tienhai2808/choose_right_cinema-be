@@ -1,4 +1,5 @@
 const express = require('express');
+
 const { deleteAllCinemas, getAllCinemas } = require('../controllers/cinema.controller');
 
 const router = express.Router();
