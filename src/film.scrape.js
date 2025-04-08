@@ -5,7 +5,7 @@ const redis = require("redis");
 
 const Film = require("./models/film.model");
 const Cinema = require("./models/cinema.model");
-const scrapeUtil = require("./utils/scrape.util");
+const { getNextSixDays } = require("./utils/scrape.util");
 const ShowTime = require("./models/showtime.model");
 
 dotenv.config();
@@ -15,7 +15,9 @@ mongoose
   .then(() => console.log("Kết nối MongoDB thành công!"))
   .catch((err) => console.error("Lỗi kết nối MongoDB:", err));
 
-const redisClient = redis.createClient();
+const redisClient = redis.createClient({
+  url: process.env.REDIS_URL,
+});
 
 (async () => {
   redisClient.on("error", (err) => {
@@ -30,7 +32,7 @@ const redisClient = redis.createClient();
 
   console.log("Đang đồng bộ dữ liệu từ MongoDB vào Redis...");
   const filmsInDB = await Film.find({});
-  const today = scrapeUtil.getNextSixDays()[0];
+  const today = getNextSixDays()[0];
   const showTimesInDB = await ShowTime.find({ date: { $gte: today } }).populate(
     [
       {
@@ -51,13 +53,13 @@ const redisClient = redis.createClient();
       title: film.title,
       slug: film.slug,
     });
-    pipeline.setEx(redisKey, 172800, filmData);
+    pipeline.setEx(redisKey, 86400, filmData);
   }
   for (const showtime of showTimesInDB) {
     const redisKey = `showtime:${showtime.date.toISOString().split("T")[0]}_${
       showtime.film.slug
     }_${showtime.cinema.slug}`;
-    pipeline.setEx(redisKey, 172800, "true");
+    pipeline.setEx(redisKey, 86400, "true");
   }
   await pipeline.exec();
   console.log(
@@ -80,7 +82,7 @@ const scrapeData = async () => {
       const url = `https://moveek.com/rap/${cinema.slug}/`;
 
       await page.goto(url, { waitUntil: "networkidle2" });
-      const dateList = scrapeUtil.getNextSixDays();
+      const dateList = getNextSixDays();
       for (const date of dateList) {
         const dateSelector = `a[data-date="${date}"]`;
         const dateElement = await page.$(dateSelector);
@@ -152,7 +154,7 @@ const scrapeData = async () => {
               title: existingFilm.title,
               slug: existingFilm.slug,
             });
-            await redisClient.setEx(redisFilmKey, 172800, filmData);
+            await redisClient.setEx(redisFilmKey, 86400, filmData);
             console.log(`Đã cập nhật phim ${film.title} vào Redis`);
           }
 
@@ -186,7 +188,7 @@ const scrapeData = async () => {
               `Showtime ngày ${date} phim ${existingFilm.title} rạp ${cinema.name} chưa có trong redis nhưng có trong DB`
             );
           }
-          await redisClient.setEx(redisShowTimeKey, 172800, "true");
+          await redisClient.setEx(redisShowTimeKey, 86400, "true");
           console.log(
             `Đã cập nhật showtime ngày ${date} phim ${existingFilm.title} rạp ${cinema.name} vào Redis`
           );

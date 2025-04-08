@@ -4,7 +4,7 @@ const dotenv = require("dotenv");
 const redis = require("redis");
 
 const Cinema = require("./models/cinema.model");
-const scrapeUtil = require("./utils/scrape.util");
+const { getNextSixDays, extractLatLngFromGoogleMapsUrl } = require("./utils/scrape.util");
 
 dotenv.config();
 
@@ -13,7 +13,9 @@ mongoose
   .then(() => console.log("Kết nối MongoDB thành công!"))
   .catch((err) => console.error("Lỗi kết nối MongoDB:", err));
 
-const redisClient = redis.createClient();
+const redisClient = redis.createClient({
+  url: process.env.REDIS_URL,
+});
 
 (async () => {
   redisClient.on("error", (err) => {
@@ -51,11 +53,11 @@ const scrapeData = async () => {
 
   await page.goto(url, { waitUntil: "networkidle2" });
   const cityList = [
-    // "Tp. Hồ Chí Minh",
-    // "Hà Nội",
-    // "Đà Nẵng",
-    // "Đồng Nai",
-    // "Cần Thơ",
+    "Tp. Hồ Chí Minh",
+    "Hà Nội",
+    "Đà Nẵng",
+    "Đồng Nai",
+    "Cần Thơ",
     "Bình Dương",
     "Bình Phước",
     "Bình Thuận",
@@ -112,14 +114,17 @@ const scrapeData = async () => {
 
   try {
     await page.click('a[href="/rap/"]');
-    console.log('Đã ấn vào thẻ a[href="/rap/"]');
+    console.log('Đã ấn vào Rạp');
 
     await new Promise((r) => setTimeout(r, 1500));
 
     for (let i = 0; i < cityList.length; i++) {
-      await page.click(".select2-selection.select2-selection--single");
-
-      await new Promise((r) => setTimeout(r, 1000));
+      try {
+        await page.click(".select2-selection.select2-selection--single");
+        await new Promise((r) => setTimeout(r, 1000));
+      } catch (err) {
+        console.log(`Không thể ấn vào danh sách tỉnh thành: ${err.message}`);
+      }
 
       const cityElements = await page.$$(".select2-results ul li");
       for (const element of cityElements) {
@@ -141,6 +146,22 @@ const scrapeData = async () => {
           aCinema
         );
         const slug = pathCinema.split("/")[2];
+
+        const redisCinemaKey = `cinema:${slug}`;
+        const cachedCinema = await redisClient.get(redisCinemaKey);
+
+        if (cachedCinema) {
+          console.log(`Rạp đã tồn tại trong Redis với slug: ${slug} và bỏ qua`);
+          continue;
+        }
+
+        const existingCinema = await Cinema.findOne({ slug: slug });
+        if (existingCinema) {
+          console.log(`Rạp đã tồn tại trong DB, thêm vào Redis với slug: ${slug} và bỏ qua`);
+          await redisClient.setEx(redisCinemaKey, 86400, "true");
+          continue;
+        }
+
         const hrefCinema = await page.evaluate((el) => el.href, aCinema);
 
         const cinemaPage = await page.browser().newPage();
@@ -158,57 +179,40 @@ const scrapeData = async () => {
           (el) => el.textContent.trim()
         );
 
-        const redisKeyCinema = `cinema:${slug}`;
-        const cachedCinema = await redisClient.get(redisKeyCinema);
-        let cinemaExists = false;
+        const aLocation = await cinemaPage.$("a.text-muted.flex-");
+        let hrefLocation = await cinemaPage.evaluate(
+          (el) => el.href,
+          aLocation
+        );
 
-        if (cachedCinema) {
-          console.log(`Rạp đã tồn tại trong Redis: ${name}`);
-          cinemaExists = true;
-        } else {
-          const existingCinema = await Cinema.findOne({ slug: slug });
-          if (existingCinema) {
-            console.log(`Rạp đã tồn tại trong DB, thêm vào Redis: ${name}`);
-            await redisClient.setEx(redisKeyCinema, 86400, "true");
-            cinemaExists = true;
-          }
+        if (name === "Đống Đa") {
+          hrefLocation = "https://maps.google.com/?q=Rạp Đống Đa";
+        } else if (name === "Viện Trao Đổi Văn Hóa Pháp – L’Espace") {
+          hrefLocation = "https://maps.google.com/?q=Tràng Tiền Plaza";
         }
+        
+        const locationPage = await cinemaPage.browser().newPage();
+        await locationPage.goto(hrefLocation, { waitUntil: "networkidle2" });
+        await new Promise((r) => setTimeout(r, 1000));
 
-        if (!cinemaExists) {
-          const aLocation = await cinemaPage.$("a.text-muted.flex-");
-          let hrefLocation = await cinemaPage.evaluate(
-            (el) => el.href,
-            aLocation
-          );
-  
-          if (name === "Đống Đa") {
-            hrefLocation = "https://maps.google.com/?q=Rạp Đống Đa";
-          } else if (name === "Viện Trao Đổi Văn Hóa Pháp – L’Espace") {
-            hrefLocation = "https://maps.google.com/?q=Tràng Tiền Plaza";
-          }
-          
-          const locationPage = await cinemaPage.browser().newPage();
-          await locationPage.goto(hrefLocation, { waitUntil: "networkidle2" });
-          await new Promise((r) => setTimeout(r, 1000));
-  
-          const locationUrl = locationPage.url();
-          const location = scrapeUtil.extractLatLngFromGoogleMapsUrl(locationUrl);
-  
-          if (location) {
-            const newCinema = new Cinema({
-              name,
-              slug,
-              address,
-              location,
-              city,
-            });
+        const locationUrl = locationPage.url();
+        const location = extractLatLngFromGoogleMapsUrl(locationUrl);
 
-            await newCinema.save();
-            console.log(`Đã lưu rạp: ${name}`);
-            await redisClient.setEx(redisKeyCinema, 86400, "true");
-          }
-          await locationPage.close();
+        if (location) {
+          const newCinema = new Cinema({
+            name,
+            slug,
+            address,
+            location,
+            city,
+          });
+
+          await newCinema.save();
+          console.log(`Đã lưu rạp: ${name}`);
+          await redisClient.setEx(redisCinemaKey, 86400, "true");
         }
+        await locationPage.close();
+        
         await cinemaPage.close();
 
         await new Promise((r) => setTimeout(r, 1000));
@@ -222,7 +226,7 @@ const scrapeData = async () => {
     console.error("Error while scraping:", err);
   } finally {
     await browser.close();
-    if (redisConnected) await redisClient.quit();
+    await redisClient.quit();
     await mongoose.connection.close();
   }
 };
