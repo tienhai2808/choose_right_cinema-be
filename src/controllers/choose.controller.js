@@ -1,7 +1,32 @@
+const redis = require("redis")
+
 const Film = require("../models/film.model");
 const Cinema = require("../models/cinema.model");
 const ShowTime = require("../models/showtime.model");
-const { scrapeShowtimeImages, calculateDistances } = require("../utils/choose.util");
+const {
+  scrapeShowtimeImages,
+  calculateDistances,
+  getGeminiRecommendation,
+  testGemini,
+} = require("../utils/choose.util");
+
+const redisClient = redis.createClient({
+  url: process.env.REDIS_URL,
+});
+
+(async () => {
+  redisClient.on("error", (err) => {
+    console.log("Redis client error", err);
+  });
+
+  redisClient.on("ready", () => {
+    console.log("Redis client started");
+  });
+
+  await redisClient.connect();
+
+  await redisClient.ping();
+})();
 
 module.exports.chooseRightCinema = async (req, res) => {
   try {
@@ -73,20 +98,54 @@ module.exports.chooseRightCinema = async (req, res) => {
       calculateDistances(cinemasWithShowtime, location),
     ]);
 
-    const cinemasWithDistance = cinemasWithShowtime
-      .map((cinema, index) => ({
-        name: cinema.name,
-        slug: cinema.slug,
-        address: cinema.address,
-        distance: travelInfos[index].distance,
-        duration: travelInfos[index].duration,
-        imgShowTime: showtimeImages[cinema.slug] || null,
-      }))
-      .sort((a, b) => a.distance - b.distance);
+    // const cinemasWithDistance = cinemasWithShowtime
+    //   .map((cinema, index) => ({
+    //     name: cinema.name,
+    //     slug: cinema.slug,
+    //     address: cinema.address,
+    //     distance: travelInfos[index].distance,
+    //     duration: travelInfos[index].duration,
+    //     imgShowTime: `http://localhost:2808/api/images/showtime/${showtimeImages[cinema.slug]}` || null,
+    //   }))
+    //   .sort((a, b) => a.distance - b.distance);
+
+    const cinemasWithDistance = await Promise.all(
+      cinemasWithShowtime.map(async (cinema, index) => {
+        const redisKey = showtimeImages[cinema.slug];
+        const base64Image = redisKey ? await redisClient.get(redisKey) : null;
+        return {
+          name: cinema.name,
+          slug: cinema.slug,
+          address: cinema.address,
+          distance: travelInfos[index].distance,
+          duration: travelInfos[index].duration,
+          imgShowTime: redisKey
+            ? `http://localhost:2808/api/images/showtime/${redisKey}`
+            : null,
+            base64Image: base64Image ? `data:image/webp;base64,${base64Image}` : null,
+        };
+      })
+    ).then((results) => results.sort((a, b) => a.distance - b.distance));
+
+    const geminiResponse = await getGeminiRecommendation(
+      cinemasWithDistance,
+      filmName,
+      viewDate
+    );
+
+    const cinemasForResponse = cinemasWithDistance.map(cinema => ({
+      name: cinema.name,
+      slug: cinema.slug,
+      address: cinema.address,
+      distance: cinema.distance,
+      duration: cinema.duration,
+      imgShowTime: cinema.imgShowTime,
+    }));
 
     res.status(200).json({
       message: "Các rạp phù hợp với bạn là:",
-      data: cinemasWithDistance,
+      data: cinemasForResponse,
+      recommendedCinema: geminiResponse,
     });
   } catch (err) {
     console.log(`Lỗi chọn rạp: ${err.message}`);

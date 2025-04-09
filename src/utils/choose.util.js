@@ -2,8 +2,9 @@ const puppeteer = require("puppeteer");
 const axios = require("axios");
 const redis = require("redis");
 const sharp = require("sharp");
-
-const cloudinary = require("../config/cloudinary");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const dotenv = require("dotenv");
+dotenv.config();
 
 const redisClient = redis.createClient({
   url: process.env.REDIS_URL,
@@ -22,6 +23,8 @@ const redisClient = redis.createClient({
 
   await redisClient.ping();
 })();
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 module.exports.scrapeShowtimeImages = async (cinemas, date, film) => {
   const browser = await puppeteer.launch({
@@ -82,7 +85,7 @@ module.exports.scrapeShowtimeImages = async (cinemas, date, film) => {
 
           await redisClient.setEx(redisImageKey, 300, base64String);
           console.log(`Đã lưu ảnh vào redis với key là: ${redisImageKey}`);
-          showtimeImages[cinema.slug] = `http://localhost:2808/api/images/showtime/${redisImageKey}`;
+          showtimeImages[cinema.slug] = redisImageKey;
         } catch (uploadErr) {
           console.log(
             `Lỗi upload ảnh cho rạp ${cinema.name}: ${uploadErr.message}`
@@ -114,4 +117,57 @@ module.exports.calculateDistances = (cinemas, location) => {
   });
 
   return Promise.all(osrmPromises);
+};
+
+module.exports.getGeminiRecommendation = async (cinemas, film, date) => {
+  const currentTime = new Date().toLocaleTimeString("en-US", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+  const prompt = `
+  Tôi đang tìm rạp chiếu phim tốt nhất để xem phim "${film}" vào ngày ${date}. 
+  Thời gian hiện tại là ${currentTime} (định dạng 24h, ví dụ 14:30). 
+  Dưới đây là danh sách các rạp gần tôi, kèm theo thông tin khoảng cách, thời gian di chuyển và ảnh suất chiếu. 
+  Trong ảnh suất chiếu, các suất nhạt màu là các suất đã chiếu (trước thời gian hiện tại), hãy bỏ qua chúng và chỉ phân tích các suất chiếu chưa diễn ra (sau thời gian hiện tại). 
+  Hãy phân tích và gợi ý rạp tốt nhất dựa trên các yếu tố sau:
+  - Khoảng cách gần.
+  - Thời gian di chuyển ngắn.
+  - Suất chiếu phù hợp (ưu tiên suất chiếu sớm nhất sau thời gian hiện tại).
+  - Nếu TẤT CẢ các rạp đều có thông tin giá vé trong ảnh (ví dụ: 88K, 20K), hãy thêm tiêu chí giá vé vào phân tích (ưu tiên giá rẻ hơn). Nếu có rạp nào không hiển thị giá vé, bỏ qua tiêu chí giá vé.
+
+  Danh sách rạp:
+  ${cinemas
+    .map(
+      (cinema, index) => `
+    Rạp ${index + 1}: 
+    - Tên: ${cinema.name}
+    - Địa chỉ: ${cinema.address}
+    - Khoảng cách: ${cinema.distance} km
+    - Thời gian di chuyển: ${cinema.duration} phút
+    - Ảnh suất chiếu: (xem ảnh đính kèm)
+  `
+    )
+    .join("\n")}
+
+  Trả về tên rạp được chọn và lý do chi tiết.
+`;
+
+  const requestData = [
+    { text: prompt },
+    ...cinemas
+      .filter((cinema) => cinema.base64Image)
+      .map((cinema) => ({
+        inlineData: {
+          data: cinema.base64Image.split(",")[1],
+          mimeType: "image/webp",
+        },
+      })),
+  ];
+
+  const result = await model.generateContent(requestData);
+  const response = result.response.text();
+
+  return response;
 };

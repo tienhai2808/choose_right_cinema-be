@@ -30,9 +30,20 @@ const redisClient = redis.createClient({
   await redisClient.connect();
   await redisClient.ping();
 
+  const showTimeKeys = await redisClient.keys("showtime:*");
+  if (showTimeKeys.length > 0) {
+    await redisClient.del(showTimeKeys);
+    console.log(`Đã xóa ${showTimeKeys.length} key showtime:* trong Redis`);
+  } else {
+    console.log('Không có key showtime:* nào trong Redis');
+  }
+
+  const today = getNextSixDays()[0];
+  await ShowTime.deleteMany({ date: { $lt: today } });
+  console.log('Đã xóa các dữ liệu showtime thừa trong DB');
+
   console.log("Đang đồng bộ dữ liệu từ MongoDB vào Redis...");
   const filmsInDB = await Film.find({});
-  const today = getNextSixDays()[0];
   const showTimesInDB = await ShowTime.find({ date: { $gte: today } }).populate(
     [
       {
@@ -68,7 +79,7 @@ const redisClient = redis.createClient({
 })();
 
 const scrapeData = async () => {
-  const cinemas = await Cinema.find({});
+  const cinemas = await Cinema.find({ city: "Đà Nẵng"});
 
   const browser = await puppeteer.launch({
     headless: true,
