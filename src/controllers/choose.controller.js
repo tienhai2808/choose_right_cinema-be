@@ -7,7 +7,6 @@ const {
   scrapeShowtimeImages,
   calculateDistances,
   getGeminiRecommendation,
-  testGemini,
 } = require("../utils/choose.util");
 
 const redisClient = redis.createClient({
@@ -97,17 +96,6 @@ module.exports.chooseRightCinema = async (req, res) => {
       scrapeShowtimeImages(cinemasWithShowtime, viewDate, film),
       calculateDistances(cinemasWithShowtime, location),
     ]);
-
-    // const cinemasWithDistance = cinemasWithShowtime
-    //   .map((cinema, index) => ({
-    //     name: cinema.name,
-    //     slug: cinema.slug,
-    //     address: cinema.address,
-    //     distance: travelInfos[index].distance,
-    //     duration: travelInfos[index].duration,
-    //     imgShowTime: `http://localhost:2808/api/images/showtime/${showtimeImages[cinema.slug]}` || null,
-    //   }))
-    //   .sort((a, b) => a.distance - b.distance);
 
     const cinemasWithDistance = await Promise.all(
       cinemasWithShowtime.map(async (cinema, index) => {
