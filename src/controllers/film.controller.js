@@ -10,8 +10,20 @@ module.exports.deleteAllFilms = async (req, res) => {
   }
 };
 
-module.exports.getAllFilms = async (req, res) => {
+module.exports.getFilms = async (req, res) => {
+  const { s } = req.query;
+
   try {
+    if (s && s.trim() !== "") {
+      const films = await Film.find({
+        $or: [
+          { title: { $regex: s, $options: "i"} },
+          { slug: { $regex: s, $options: "i" } }
+        ]
+      }).limit(10);
+      return res.status(200).json(films);
+    }
+
     const films = await Film.find({});
     res.status(200).json(films);
   } catch (err) {

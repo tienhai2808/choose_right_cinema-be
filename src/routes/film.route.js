@@ -1,10 +1,10 @@
 const express = require("express");
 
-const { deleteAllFilms, getAllFilms } = require("../controllers/film.controller");
+const { deleteAllFilms, getFilms } = require("../controllers/film.controller");
 
 const router = express.Router();
 
-router.get("/all", getAllFilms);
+router.get("/", getFilms);
 
 router.delete("/all", deleteAllFilms);
 

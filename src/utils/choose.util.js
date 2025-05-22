@@ -120,16 +120,19 @@ module.exports.calculateDistances = (cinemas, location) => {
 };
 
 module.exports.getGeminiRecommendation = async (cinemas, film, date) => {
-  const currentTime = new Date().toLocaleTimeString("en-US", {
+  const currentTime = new Date().toLocaleString("en-US", {
     hour12: false,
     hour: "2-digit",
     minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
   });
   const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
   const prompt = `
   Tôi đang tìm rạp chiếu phim tốt nhất để xem phim "${film}" vào ngày ${date}. 
-  Thời gian hiện tại là ${currentTime} (định dạng 24h, ví dụ 14:30). 
-  Dưới đây là danh sách các rạp gần tôi, kèm theo thông tin khoảng cách, thời gian di chuyển và ảnh suất chiếu. 
+  Thời gian hiện tại là ${currentTime}. 
+  Dưới đây là danh sách các rạp gần tôi, kèm theo thông tin khoảng cách, thời gian di chuyển và ảnh suất chiếu tại ngày ${date}. 
   Trong ảnh suất chiếu, các suất nhạt màu là các suất đã chiếu (trước thời gian hiện tại), hãy bỏ qua chúng và chỉ phân tích các suất chiếu chưa diễn ra (sau thời gian hiện tại). 
   Hãy phân tích và gợi ý rạp tốt nhất dựa trên các yếu tố sau:
   - Khoảng cách gần.
